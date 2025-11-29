@@ -1,0 +1,235 @@
+﻿@page "/"
+@using BookStore.Models
+@inject HttpClient Http
+@rendermode InteractiveServer
+
+<PageTitle>BookStore Dashboard</PageTitle>
+
+<div class="container mt-4">
+    <h1 class="mb-4">📚 Інформаційна система Bookstore</h1>
+
+    <div class="row">
+        <div class="col-md-12 mb-5">
+            <div class="card shadow">
+                <div class="card-header bg-primary text-white">
+                    <h3>Список товарів (Книги)</h3>
+                </div>
+                <div class="card-body">
+                    @if (books == null)
+                    {
+                        <p><em>Завантаження...</em></p>
+                    }
+                    else
+                    {
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Назва</th>
+                                    <th>Ціна</th>
+                                    <th>Склад</th>
+                                    <th>Жанр</th>
+                                    <th>Видавництво</th>
+                                    <th>Автор</th>
+                                    <th>Дії</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var book in books)
+                                {
+                                    <tr @onclick="() => LoadSales(book.Book_Id)" style="cursor:pointer" class="@(selectedBookId == book.Book_Id ? "table-active" : "")">
+                                        <td>@book.Book_Id</td>
+                                        <td>@book.Title</td>
+                                        <td>@book.Price.ToString("C")</td>
+                                        <td>@book.Stock_Qty</td>
+                                        <td>@book.GenreName</td>
+                                        <td>@book.PublisherName</td>
+                                        <td>@book.AuthorName</td>
+                                        <td>
+                                            <button class="btn btn-sm btn-info">Деталі</button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                </div>
+            </div>
+            @if (selectedBookSales != null)
+            {
+                <div class="alert alert-secondary mt-3">
+                    <h5>Історія продажів книги ID: @selectedBookId</h5>
+                    @if (!selectedBookSales.Any())
+                    {
+                        <p>Продажів ще не було.</p>
+                    }
+                    else
+                    {
+                        <ul>
+                            @foreach(var sale in selectedBookSales)
+                            {
+                                <li>Чек №@sale.Check_No від @sale.Date_Sale.ToShortDateString() — @sale.Quantity шт. (@sale.Total_Price.ToString("C"))</li>
+                            }
+                        </ul>
+                    }
+                </div>
+            }
+        </div>
+        <div class="col-md-6">
+            <div class="card shadow mb-4">
+                <div class="card-header bg-success text-white">
+                    <h4>⚙️ Збережена Процедура (Знижка)</h4>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label>Жанр:</label>
+                        <input @bind="discountGenre" class="form-control" placeholder="Fantasy" />
+                    </div>
+                    <div class="mb-3">
+                        <label>Відсоток (%):</label>
+                        <input @bind="discountPercent" type="number" class="form-control" />
+                    </div>
+                    <button class="btn btn-success w-100" @onclick="ApplyDiscount">Застосувати знижку</button>
+                    @if (!string.IsNullOrEmpty(procMessage))
+                    {
+                        <div class="alert alert-info mt-2">@procMessage</div>
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card shadow mb-4">
+                <div class="card-header bg-warning text-dark">
+                    <h4>🔍 Скалярна Функція (Макс. Чек)</h4>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label>Видавництво:</label>
+                        <input @bind="publisherName" class="form-control" placeholder="Vivat" />
+                    </div>
+                    <button class="btn btn-warning w-100" @onclick="GetMaxCheck">Знайти чек</button>
+                    @if (!string.IsNullOrEmpty(funcResult))
+                    {
+                        <div class="alert alert-info mt-2">Результат: <strong>@funcResult</strong></div>
+                    }
+                </div>
+            </div>
+        </div>
+        <div class="col-md-12">
+            <div class="card shadow border-danger">
+                <div class="card-header bg-danger text-white">
+                    <h4>⚠️ Тест Виключень (SQL Trigger)</h4>
+                </div>
+                <div class="card-body">
+                    <div class="input-group">
+                        <input @bind="newBookTitle" class="form-control" placeholder="Назва книги..." />
+                        <button class="btn btn-danger" @onclick="TryAddBook">Спробувати додати</button>
+                    </div>
+                    @if (!string.IsNullOrEmpty(errorMessage))
+                    {
+                        <div class="alert alert-danger mt-2">
+                            <strong>Помилка від сервера БД:</strong> <br />
+                            @errorMessage
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+@code {
+    private IEnumerable<Book>? books;
+    private IEnumerable<Sale>? selectedBookSales;
+    private int selectedBookId;
+    private string discountGenre = "Fantasy";
+    private decimal discountPercent = 5;
+    private string publisherName = "Vivat";
+    private string newBookTitle = "Test Book";
+    private string procMessage = "";
+    private string funcResult = "";
+    private string errorMessage = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadBooks();
+    }
+
+    private async Task LoadBooks()
+    {
+        try 
+        {
+            books = await Http.GetFromJsonAsync<IEnumerable<Book>>("api/books");
+        }
+        catch(Exception ex)
+        {
+            errorMessage = "Не вдалося завантажити книги. Перевірте API: " + ex.Message;
+        }
+    }
+
+    private async Task LoadSales(int bookId)
+    {
+        selectedBookId = bookId;
+        selectedBookSales = await Http.GetFromJsonAsync<IEnumerable<Sale>>($"api/books/{bookId}/sales");
+    }
+
+    private async Task ApplyDiscount()
+    {
+        procMessage = "Виконання...";
+        errorMessage = "";
+        var request = new DiscountRequest { GenreName = discountGenre, Percent = discountPercent };
+        
+        var response = await Http.PostAsJsonAsync("api/books/discount", request);
+        
+        if (response.IsSuccessStatusCode)
+        {
+            procMessage = "Успішно! Ціни оновлено.";
+            await LoadBooks();
+        }
+        else
+        {
+            var error = await response.Content.ReadFromJsonAsync<ErrorResponse>();
+            errorMessage = error?.Message ?? "Сталася помилка";
+            procMessage = "";
+        }
+    }
+
+    private async Task GetMaxCheck()
+    {
+        funcResult = "Пошук...";
+        var result = await Http.GetFromJsonAsync<Dictionary<string, string>>($"api/books/max-check?publisher={publisherName}");
+        if (result != null && result.ContainsKey("result"))
+        {
+            funcResult = result["result"] ?? "Немає даних";
+        }
+    }
+
+    private async Task TryAddBook()
+    {
+        errorMessage = "";
+        var book = new Book 
+        { 
+            Title = newBookTitle, 
+            Price = 100, 
+            Stock_Qty = 10, 
+            Pub_Id = 1, 
+            Genre_Id = 1, 
+            Author_Id = 1, 
+            Publish_Year = 2024 
+        };
+
+        var response = await Http.PostAsJsonAsync("api/books", book);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var error = await response.Content.ReadFromJsonAsync<ErrorResponse>();
+            errorMessage = error?.Message ?? "Невідома помилка";
+        }
+        else
+        {
+            procMessage = "Книгу дивом додано!";
+            await LoadBooks();
+        }
+    }
+}
